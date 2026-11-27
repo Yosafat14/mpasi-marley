@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/types.ts","./src/vite-env.d.ts","./src/components/allergytrackerview.tsx","./src/components/dailylogview.tsx","./src/components/profiledataview.tsx","./src/components/recipesview.tsx","./src/components/weeklyplannerview.tsx","./src/data/seed.ts","./src/utils/mpasi.ts","./src/utils/storage.ts"],"version":"5.9.3"}
