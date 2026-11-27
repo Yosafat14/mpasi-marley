@@ -1,9 +1,24 @@
-import React, { useState } from 'react';
-import { AlertCircle, Baby, CheckCircle, HeartHandshake, Lock, Mail, Sparkles, User } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { AlertCircle, Baby, CheckCircle, HeartHandshake, Lock, Mail, RefreshCw, Sparkles, User } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 
 interface AuthViewProps {
   onAuthSuccess: (userId: string, initialBabyName?: string) => void;
+}
+
+/** Baca error/info dari URL hash yang dikirim balik oleh Supabase */
+function parseHashError(): { errorCode: string; errorDescription: string } | null {
+  const hash = window.location.hash.slice(1); // hapus '#'
+  if (!hash) return null;
+  const params = new URLSearchParams(hash);
+  const errorCode = params.get('error_code') || '';
+  const errorDescription = params.get('error_description') || '';
+  if (errorCode || errorDescription) {
+    // Bersihkan hash dari URL setelah dibaca
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    return { errorCode, errorDescription };
+  }
+  return null;
 }
 
 export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
@@ -12,8 +27,28 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
   const [password, setPassword] = useState('');
   const [babyName, setBabyName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [infoMsg, setInfoMsg] = useState('');
+  const [showResend, setShowResend] = useState(false);
+
+  // Deteksi error dari URL hash saat komponen pertama kali di-mount
+  useEffect(() => {
+    const hashError = parseHashError();
+    if (hashError) {
+      const { errorCode, errorDescription } = hashError;
+      if (errorCode === 'otp_expired' || errorDescription.toLowerCase().includes('expired')) {
+        setErrorMsg(
+          'Link verifikasi email sudah kadaluarsa. Silakan masukkan email Anda lalu klik "Kirim Ulang Email Verifikasi" di bawah, atau langsung coba Login jika akun sudah aktif.'
+        );
+        setShowResend(true);
+      } else if (errorCode === 'access_denied') {
+        setErrorMsg('Akses ditolak: ' + errorDescription.replace(/\+/g, ' '));
+      } else {
+        setErrorMsg(errorDescription.replace(/\+/g, ' ') || 'Terjadi kesalahan autentikasi.');
+      }
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,10 +73,10 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
         if (data.session?.user) {
           onAuthSuccess(data.session.user.id, babyName.trim() || undefined);
         } else if (data.user) {
-          // Jika konfirmasi email diaktifkan di Supabase
           setInfoMsg(
-            'Pendaftaran berhasil! Jika konfirmasi email aktif di project Anda, silakan cek kotak masuk email untuk verifikasi, lalu masuk.'
+            `Pendaftaran berhasil! Cek kotak masuk email ${email.trim()} untuk link verifikasi, lalu kembali ke sini dan klik "Masuk".`
           );
+          setShowResend(true);
         }
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({
@@ -57,11 +92,14 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Terjadi kendala saat menghubungkan ke akun.';
-      // Terjemahkan error umum Supabase ke Bahasa Indonesia ramah pengguna
       if (message.includes('Invalid login credentials')) {
         setErrorMsg('Email atau kata sandi tidak cocok. Silakan periksa kembali.');
       } else if (message.includes('User already registered')) {
-        setErrorMsg('Email ini sudah terdaftar. Silakan pilih "Masuk" dengan akun ini.');
+        setErrorMsg('Email ini sudah terdaftar. Silakan pilih "Masuk" dengan akun yang sama.');
+        setShowResend(false);
+      } else if (message.includes('Email not confirmed')) {
+        setErrorMsg('Email belum dikonfirmasi. Silakan kirim ulang link verifikasi di bawah.');
+        setShowResend(true);
       } else if (message.includes('Password should be at least')) {
         setErrorMsg('Kata sandi minimal harus 6 karakter.');
       } else {
@@ -69,6 +107,30 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!email.trim()) {
+      setErrorMsg('Isi dulu Email Keluarga di kolom di atas, lalu klik tombol ini.');
+      return;
+    }
+    setResendLoading(true);
+    setErrorMsg('');
+    setInfoMsg('');
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email.trim(),
+      });
+      if (error) throw error;
+      setInfoMsg(`Link verifikasi baru telah dikirim ke ${email.trim()}. Cek kotak masuk (dan folder Spam).`);
+      setShowResend(false);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Gagal mengirim ulang email.';
+      setErrorMsg('Gagal kirim ulang: ' + message);
+    } finally {
+      setResendLoading(false);
     }
   };
 
@@ -155,6 +217,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
               setIsRegister(false);
               setErrorMsg('');
               setInfoMsg('');
+              setShowResend(false);
             }}
             style={{
               flex: 1,
@@ -178,6 +241,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
               setIsRegister(true);
               setErrorMsg('');
               setInfoMsg('');
+              setShowResend(false);
             }}
             style={{
               flex: 1,
@@ -197,6 +261,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
           </button>
         </div>
 
+        {/* Pesan Error */}
         {errorMsg && (
           <div
             style={{
@@ -204,18 +269,19 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
               color: 'var(--danger)',
               padding: '10px 12px',
               borderRadius: 'var(--radius-sm)',
-              marginBottom: '16px',
+              marginBottom: '14px',
               fontSize: '0.84rem',
               display: 'flex',
-              alignItems: 'center',
+              alignItems: 'flex-start',
               gap: '8px',
             }}
           >
-            <AlertCircle size={16} style={{ flexShrink: 0 }} />
+            <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
             <span>{errorMsg}</span>
           </div>
         )}
 
+        {/* Pesan Info / Sukses */}
         {infoMsg && (
           <div
             style={{
@@ -223,14 +289,14 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
               color: '#065f46',
               padding: '10px 12px',
               borderRadius: 'var(--radius-sm)',
-              marginBottom: '16px',
+              marginBottom: '14px',
               fontSize: '0.84rem',
               display: 'flex',
-              alignItems: 'center',
+              alignItems: 'flex-start',
               gap: '8px',
             }}
           >
-            <CheckCircle size={16} style={{ flexShrink: 0 }} />
+            <CheckCircle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
             <span>{infoMsg}</span>
           </div>
         )}
@@ -299,19 +365,53 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
             type="submit"
             disabled={loading}
             className="btn btn-primary"
-            style={{ width: '100%', padding: '12px', fontSize: '0.95rem', marginTop: '6px' }}
+            style={{ width: '100%', padding: '12px', fontSize: '0.95rem', marginTop: '4px' }}
           >
             {loading ? (
               'Sedang Memproses...'
             ) : isRegister ? (
-              <>
-                <Sparkles size={16} /> Daftar Akun Keluarga
-              </>
+              <><Sparkles size={16} /> Daftar Akun Keluarga</>
             ) : (
               'Masuk ke HapHapNyam'
             )}
           </button>
         </form>
+
+        {/* Tombol Kirim Ulang Verifikasi — tampil saat link expired */}
+        {showResend && (
+          <div
+            style={{
+              marginTop: '14px',
+              padding: '14px',
+              background: 'var(--warning-soft)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid rgba(217, 119, 6, 0.2)',
+            }}
+          >
+            <p style={{ margin: '0 0 10px', fontSize: '0.83rem', color: '#92400e', fontWeight: 600 }}>
+              Butuh link verifikasi baru?
+            </p>
+            <p style={{ margin: '0 0 10px', fontSize: '0.8rem', color: '#78350f' }}>
+              Isi email di kolom di atas, lalu klik tombol di bawah. Link baru akan dikirim ke kotak masuk Anda.
+            </p>
+            <button
+              type="button"
+              onClick={handleResendVerification}
+              disabled={resendLoading}
+              className="btn btn-outline"
+              style={{
+                width: '100%',
+                borderColor: '#d97706',
+                color: '#92400e',
+                fontSize: '0.88rem',
+                gap: '8px',
+              }}
+            >
+              <RefreshCw size={14} style={resendLoading ? { animation: 'spin 1s linear infinite' } : undefined} />
+              {resendLoading ? 'Mengirim...' : 'Kirim Ulang Email Verifikasi'}
+            </button>
+          </div>
+        )}
 
         <div style={{ textAlign: 'center', marginTop: '20px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
           HapHapNyam • Tersinkronisasi Aman di Cloud Supabase
