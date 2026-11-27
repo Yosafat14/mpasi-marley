@@ -73,7 +73,7 @@ export const RecipesView: React.FC<RecipesViewProps> = ({
       <div className="card stack-md">
         <div className="row-between">
           <div>
-            <h3>Bank Resep MPASI Marley</h3>
+            <h3>Bank Resep MPASI HapHapNyam</h3>
             <p className="muted" style={{ margin: 0 }}>
               Kumpulan resep gizi seimbang 4 bintang + lemak tambahan.
             </p>

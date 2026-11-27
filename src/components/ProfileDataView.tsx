@@ -28,7 +28,7 @@ export const ProfileDataView: React.FC<ProfileDataViewProps> = ({
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     onUpdateProfile(form);
-    setSavedMsg('Profil Marley tersimpan di perangkat ini!');
+    setSavedMsg(`Profil ${form.name} tersimpan dan tersinkronisasi ke cloud!`);
     setTimeout(() => setSavedMsg(''), 3000);
   };
 
@@ -149,9 +149,9 @@ export const ProfileDataView: React.FC<ProfileDataViewProps> = ({
 
         <div className="card stack-md">
           <div>
-            <h3>Penyimpanan Lokal & Backup</h3>
+            <h3>Penyimpanan Cloud Supabase & Cadangan</h3>
             <p className="muted" style={{ margin: 0 }}>
-              Semua catatan MPASI {store.profile.name} tersimpan langsung di browser perangkat ini (localStorage), tanpa perlu internet atau akun cloud.
+              Semua data makan dan tumbuh kembang {store.profile.name} otomatis tersinkronisasi ke akun keluarga Anda di cloud Supabase. Anda dan pasangan dapat mengaksesnya bersamaan.
             </p>
           </div>
 

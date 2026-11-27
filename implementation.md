@@ -1,19 +1,20 @@
-# Dokumentasi Implementasi — MPASI Marley
+# Dokumentasi Implementasi — HapHapNyam
 
-Aplikasi pencatatan, perencana menu, dan pemantau gizi MPASI (Makanan Pendamping ASI) untuk si kecil Marley yang berjalan **100% lokal** di peramban (offline-first) tanpa ketergantungan server/cloud pihak ketiga.
+Aplikasi pencatatan, perencana menu, dan pemantau gizi MPASI (Makanan Pendamping ASI) multi-keluarga dengan sistem **1 Keluarga 1 Akses** yang tersinkronisasi secara *real-time* ke **Supabase Cloud**.
 
 ---
 
 ## 1. Arsitektur & Teknologi
 
-| Komponen | Pilihan Teknologi | Alasan Pemilihan |
+| Komponen | Pilihan Teknologi | Peran & Alasan Pemilihan |
 | :--- | :--- | :--- |
-| **Frontend Framework** | React 18 + TypeScript | Komponen modular, type-safety kuat untuk data nutrisi & jadwal |
-| **Build Tool & Bundler** | Vite 6 | Waktu kompilasi dan HMR instan di lingkungan lokal Windows |
-| **Ikon UI** | Lucide React | Ikon modern, ringan, dan ramah pengguna |
-| **Styling** | Vanilla CSS Variable Design System | Tidak memerlukan runtime CSS berat; palet warna lembut ramah anak |
-| **Penyimpanan Data** | LocalStorage API (`mpasi_marley_store_v1`) | Data aman di perangkat lokal, offline tanpa internet |
-| **Backup & Migrasi** | JSON File Export / Import API | Cadangan data dapat dipindahkan antar perangkat atau disimpan rapi |
+| **Frontend Framework** | React 18 + TypeScript | UI berbasis komponen reaktif, modular, dan type-safe |
+| **Backend & Database** | Supabase (PostgreSQL + Auth) | Autentikasi keluarga, database PostgreSQL realtime, penyimpanan JSONB |
+| **Tabel Utama** | `data_keluarga` | Menyimpan `user_id`, `nama_anak`, dan `data_mpasi` bertipe JSONB |
+| **Client SDK** | `@supabase/supabase-js` | Mengelola sesi login/register dan operasi `select` serta `upsert` |
+| **Build Tool & Bundler** | Vite 6 | Kompilasi cepat, HMR instan, dan optimasi bundle |
+| **Styling** | Vanilla CSS Variable Design System | Desain hangat, ramah anak, dan responsif di smartphone |
+| **Ikon UI** | Lucide React | Ikon modern dan informatif untuk navigasi |
 
 ---
 
@@ -21,70 +22,86 @@ Aplikasi pencatatan, perencana menu, dan pemantau gizi MPASI (Makanan Pendamping
 
 ```text
 d:\YOSAFAT\MPASI MARLEY\
-├── index.html                  # HTML entry point dengan font Nunito & Plus Jakarta Sans
-├── package.json                # Dependensi & script proyek
+├── index.html                  # HTML entry point (Branding: HapHapNyam)
+├── package.json                # Dependensi (@supabase/supabase-js, react, lucide-react, vite)
 ├── tsconfig.json               # Konfigurasi TypeScript bundler mode
 ├── vite.config.ts              # Konfigurasi dev server & build Vite
 ├── dist/                       # Output build produksi (siap hosting statis)
 └── src/
-    ├── main.tsx                # React DOM render entry
+    ├── main.tsx                # Entry point render React DOM
+    ├── supabaseClient.ts       # Inisialisasi client Supabase dengan URL & anon key
     ├── vite-env.d.ts           # Deklarasi tipe Vite client
-    ├── index.css               # Tema warna, token CSS, tata letak responsif & modal
-    ├── types.ts                # Model data & antarmuka TypeScript
-    ├── App.tsx                 # Root component: navigasi tab, state sinkronisasi, toast
+    ├── index.css               # Tema warna, layout responsif, modal, form input
+    ├── types.ts                # Tipe data MPASI (BabyProfile, MealLog, Recipe, dll.)
+    ├── App.tsx                 # Root component: auth check, cloud sync data_keluarga, tab navigation
     ├── data/
-    │   └── seed.ts             # Data inisialisasi awal (resep, jurnal, jadwal, alergi)
+    │   └── seed.ts             # Bank resep bawaan & template jurnal inisialisasi awal
     ├── utils/
-    │   ├── mpasi.ts            # Logika hitung usia, panduan tekstur IDAI/WHO, slot makan
-    │   └── storage.ts          # Sinkronisasi LocalStorage, validasi, dan export/import JSON
+    │   ├── mpasi.ts            # Kalkulasi usia si kecil & rekomendasi tekstur IDAI/WHO
+    │   └── storage.ts          # Integrasi Supabase: loadFamilyStoreFromSupabase, syncFamilyStoreToSupabase
     └── components/
-        ├── DailyLogView.tsx    # Jurnal makan harian & kelengkapan 5 unsur gizi
+        ├── AuthView.tsx        # Halaman Masuk & Daftar Akun Keluarga (1 keluarga 1 akun)
+        ├── DailyLogView.tsx    # Jurnal makan harian & tracker 5 unsur gizi
         ├── WeeklyPlannerView.tsx # Perencana menu 7 hari & checklist belanja otomatis
-        ├── RecipesView.tsx     # Bank resep, filter usia, pembuat resep kustom, log cepat
-        ├── AllergyTrackerView.tsx # Tracker uji bahan baru 3 hari & status alergi
-        └── ProfileDataView.tsx # Profil si kecil, panduan fase usia, & backup/restore
+        ├── RecipesView.tsx     # Bank resep MPASI bergizi & log 1-klik ke jurnal
+        ├── AllergyTrackerView.tsx # Pelacak pengenalan bahan baru 3 hari (3-day wait rule)
+        └── ProfileDataView.tsx # Pengaturan profil si kecil & status cloud Supabase
 ```
 
 ---
 
-## 3. Skema Data (`types.ts`)
+## 3. Konfigurasi Supabase Client (`src/supabaseClient.ts`)
 
-### a. Profil Anak (`BabyProfile`)
 ```typescript
-export interface BabyProfile {
-  name: string;        // Nama si kecil (contoh: Marley)
-  birthDate: string;   // YYYY-MM-DD untuk kalkulasi usia real-time
-  weightKg: number;    // Berat badan terkini (kg)
-  heightCm: number;    // Tinggi badan terkini (cm)
-  notes: string;       // Catatan kebiasaan / tekstur favorit
-}
+import { createClient } from '@supabase/supabase-js';
+
+const rawUrl = 'https://wglbahwzqeocavoghbxp.supabase.co/rest/v1/';
+export const supabaseUrl = rawUrl.replace(/\/rest\/v1\/?$/, '');
+export const supabaseAnonKey = 'sb_publishable_fWsMkBsqZxrEHfktqDlVTw_Qm3IYbiV';
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+  },
+});
 ```
-
-### b. Jurnal Makan (`MealLog`)
-- Slot waktu: `sarapan`, `snack_pagi`, `siang`, `snack_sore`, `malam`.
-- Porsi: `habis` (100%), `3/4`, `1/2`, `1/4`, `menolak` (GTM).
-- 5 Unsur Gizi: `karbo`, `prohe`, `prona`, `sayur_buah`, `lemak`.
-- Indikator kesukaan (`loved`) & respon reaksi fisik/kulit.
-
-### c. Bank Resep (`Recipe`)
-- Pengelompokan usia: `6-8`, `9-11`, `12+` bulan.
-- Waktu masak (`prepMinutes`), komposisi gizi, bahan-bahan, langkah pembuatan, dan catatan tekstur khusus.
-
-### d. Jadwal & Belanja (`WeeklyPlan`, `ShoppingItem`)
-- Jadwal berbasis matriks hari (`senin` .. `minggu`) dan slot makan.
-- Fitur otomatis: **Tarik dari Jadwal** mengekstraksi bahan resep yang sudah dijadwalkan langsung ke daftar belanja tanpa duplikasi.
-
-### e. Uji Coba Bahan Baru & Alergi (`IngredientTrial`)
-- Mengakomodasi panduan medis pengenalan bahan baru (*3-day wait rule*).
-- Status pengawasan: `pantau` (dalam pengamatan), `aman` (lolos uji), `alergi` (sensitif/reaksi ruam).
 
 ---
 
-## 4. Mekanisme Penyimpanan & Keamanan Data Lokal
+## 4. Mekanisme Sinkronisasi Tabel `data_keluarga`
 
-1. **Auto-Persist**: Setiap perubahan state pada `App.tsx` langsung disinkronkan ke peramban menggunakan `localStorage.setItem('mpasi_marley_store_v1', ...)`.
-2. **Offline Total**: Tidak ada data yang dikirim ke jaringan luar. Privasi data tumbuh kembang Marley terjamin di komputer lokal.
-3. **Ekspor & Impor Cadangan**:
-   - Fungsi `exportStoreJSON` membuat file `mpasi-marley-backup-YYYY-MM-DD.json`.
-   - Fungsi `FileReader` memvalidasi skema sebelum menimpa state untuk menghindari kerusakan struktur data.
-4. **Pembersihan & Reset**: Opsi reset satu tombol mengembalikan state ke default resep dan konfigurasi awal.
+### Skema Tabel Supabase:
+- **`user_id`** (`uuid` / `text`, Primary Key): ID pengguna Supabase Auth keluarga yang sedang login.
+- **`nama_anak`** (`text`): Nama si kecil yang dipantau (misal: "Marley").
+- **`data_mpasi`** (`jsonb`): Seluruh pohon data aplikasi:
+  ```json
+  {
+    "profile": { "name": "Marley", "birthDate": "2026-03-22", "weightKg": 8.4, "heightCm": 70.5, "notes": "..." },
+    "logs": [ ... ],
+    "recipes": [ ... ],
+    "weeklyPlan": { ... },
+    "trials": [ ... ],
+    "shoppingList": [ ... ]
+  }
+  ```
+
+### Alur Kerja (Workflow):
+1. **Autentikasi**:
+   - Pengguna disambut oleh `AuthView`. Pasangan (Ayah dan Ibu) menggunakan email & kata sandi yang sama di perangkat masing-masing.
+2. **Pengambilan Data (Fetch)**:
+   - Setelah login, `loadFamilyStoreFromSupabase(userId)` memanggil query:
+     ```typescript
+     supabase.from('data_keluarga').select('nama_anak, data_mpasi').eq('user_id', userId).maybeSingle();
+     ```
+   - Jika akun baru (belum memiliki baris di tabel), sistem menginisialisasi template data MPASI awal dan langsung menyimpannya ke Supabase.
+3. **Auto-Sync Otomatis (Upsert)**:
+   - Setiap mutasi state (tambah catatan makan, ubah jadwal mingguan, tandai belanjaan, perbarui profil, tambah resep kustom) memicu sinkronisasi otomatis via `syncFamilyStoreToSupabase`:
+     ```typescript
+     supabase.from('data_keluarga').upsert({
+       user_id: userId,
+       nama_anak: store.profile.name,
+       data_mpasi: store,
+     }, { onConflict: 'user_id' });
+     ```
+   - Di bilah atas (topbar), terdapat indikator status cloud: **"Tersinkron"** (awan hijau), **"Menyimpan..."** (animasi putar), atau **"Offline"**.
