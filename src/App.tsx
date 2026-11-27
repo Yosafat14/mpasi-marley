@@ -58,10 +58,19 @@ export default function App() {
     setTimeout(() => setToast(''), 3000);
   };
 
-  // 1. Cek sesi login Supabase saat aplikasi dibuka
+  // 1. Cek sesi login Supabase + tangani hash token dari verifikasi email
   useEffect(() => {
     const initAuth = async () => {
       try {
+        // Tangani redirect verifikasi email: URL hash berisi #access_token=...
+        // Supabase JS SDK v2 otomatis mendeteksi hash ini saat getSession() dipanggil
+        const hash = window.location.hash;
+        if (hash && hash.includes('access_token')) {
+          // Biarkan Supabase parse hash secara internal lewat onAuthStateChange
+          // Bersihkan hash dari URL agar tidak terlihat di address bar
+          window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        }
+
         const { data } = await supabase.auth.getSession();
         if (data.session?.user) {
           setUserId(data.session.user.id);
@@ -76,11 +85,15 @@ export default function App() {
 
     initAuth();
 
-    // Pantau perubahan status auth (login / logout)
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+    // Pantau semua perubahan status auth (login / logout / verifikasi email)
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
         setUserId(session.user.id);
         setUserEmail(session.user.email || null);
+        // Bersihkan hash dari URL setelah token berhasil dibaca (kasus SIGNED_IN dari email link)
+        if (event === 'SIGNED_IN' && window.location.hash.includes('access_token')) {
+          window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        }
       } else {
         setUserId(null);
         setUserEmail(null);

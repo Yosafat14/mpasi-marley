@@ -9,5 +9,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
+    // Aktifkan deteksi token dari URL hash (penting untuk link verifikasi email)
+    detectSessionInUrl: true,
   },
 });
